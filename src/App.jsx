@@ -165,7 +165,7 @@ const LoginPage = ({ setUser, setCurrentPage }) => {
                     <button type="submit" style={styles.primaryButton}>Launch</button>
                 </form>
                 <div style={{marginTop: '24px', textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.5'}}>
-                    <p><span style={{fontWeight: 'bold', color: 'rgba(255,255,255,0.7)'}}>Admin:</span> admin@quiz.com / pass1234</p>
+                    {/* <p><span style={{fontWeight: 'bold', color: 'rgba(255,255,255,0.7)'}}>Admin:</span> admin@quiz.com / pass1234</p> */}
                     <p><span style={{fontWeight: 'bold', color: 'rgba(255,255,255,0.7)'}}>User:</span> user@quiz.com / pass1234</p>
                 </div>
             </div>
