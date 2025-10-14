@@ -127,25 +127,36 @@ const LoginPage = ({ setUser, setCurrentPage }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
+    // --- inside LoginPage component ---
     const handleLogin = (e) => {
-        e.preventDefault();
-        setError('');
-        const userData = predefinedUsers[email];
+    e.preventDefault();
+    setError('');
 
-        if (userData && userData.password === password) {
-            const realUid = auth.currentUser?.uid;
-            if (!realUid) {
-                setError("Authentication not ready. Please try again in a moment.");
-                return;
-            }
-            const loggedInUser = { email, ...userData, uid: realUid };
-            localStorage.setItem('quizUser', JSON.stringify(loggedInUser));
-            setUser(loggedInUser);
-            setCurrentPage(loggedInUser.role === 'admin' ? 'adminDashboard' : 'userDashboard');
-        } else {
-            setError('Invalid email or password.');
+    const normalizedEmail = email.trim().toLowerCase();
+    const userData = predefinedUsers[normalizedEmail];
+
+    if (userData && userData.password === password) {
+        const realUid = auth.currentUser?.uid;
+        if (!realUid) {
+        setError("Authentication not ready. Please try again in a moment.");
+        return;
         }
+
+        const loggedInUser = {
+        email: normalizedEmail,      // store normalized email
+        userKey: normalizedEmail,    // stable cross-device identifier
+        uid: realUid,                // still keep Firebase uid if needed
+        role: userData.role
+        };
+
+        localStorage.setItem('quizUser', JSON.stringify(loggedInUser));
+        setUser(loggedInUser);
+        setCurrentPage(loggedInUser.role === 'admin' ? 'adminDashboard' : 'userDashboard');
+    } else {
+        setError('Invalid email or password.');
+    }
     };
+
 
     return (
         <div style={styles.centeredPageLayout}>
@@ -396,7 +407,11 @@ const UserDashboard = ({ tests, user, submissions, setCurrentPage, setSelectedTe
             <h2 style={{...styles.h2, marginBottom: '24px'}}>Available Tests</h2>
              <div style={styles.gridContainer}>
                 {tests.map(test => {
-                    const userSubmission = submissions.find(s => s.testId === test.id && s.userId === user.uid);
+                    // inside UserDashboard tests.map(...)
+const userSubmission = submissions.find(
+  s => s.testId === test.id && s.userId === user.userKey
+);
+
                     const isCompleted = userSubmission?.status === 'completed';
                     const isInProgress = userSubmission?.status === 'in-progress';
                     
@@ -719,7 +734,20 @@ const AnalyticsPage = ({ test, setCurrentPage }) => {
 // --- MAIN APP COMPONENT ---
 
 export default function App() {
-    const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('quizUser') || 'null'));
+    const [user, setUser] = useState(() => {
+        const raw = localStorage.getItem('quizUser');
+        if (!raw) return null;
+        try {
+            const u = JSON.parse(raw);
+            const normalizedEmail = (u.email || '').trim().toLowerCase();
+            const withKey = { ...u, email: normalizedEmail, userKey: u.userKey || normalizedEmail };
+            localStorage.setItem('quizUser', JSON.stringify(withKey));
+            return withKey;
+        } catch {
+            return null;
+        }
+    });
+
     const [authReady, setAuthReady] = useState(false);
     const [currentPage, setCurrentPage] = useState('login');
     const [tests, setTests] = useState([]);
@@ -750,13 +778,20 @@ export default function App() {
     }, [authReady]);
     
     useEffect(() => {
-        if (!user || !authReady) { setSubmissions([]); return; };
-        const q = query(collection(db, "submissions"), where("userId", "==", user.uid));
-        const unsubSubmissions = onSnapshot(q, (snapshot) => {
-            setSubmissions(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-        });
-        return () => unsubSubmissions();
-    }, [user, authReady]);
+  if (!user || !authReady) { setSubmissions([]); return; }
+
+  const qByEmail = query(
+    collection(db, "submissions"),
+    where("userId", "==", user.userKey)   // email as the primary key
+  );
+
+  const unsubSubmissions = onSnapshot(qByEmail, (snapshot) => {
+    setSubmissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  });
+
+  return () => unsubSubmissions();
+}, [user, authReady]);
+
 
     const handleLogout = () => {
         localStorage.removeItem('quizUser');
@@ -764,29 +799,40 @@ export default function App() {
         setCurrentPage('login');
     };
 
-    const handleStartTest = async (test, isResuming = false) => {
-        if (!user) return;
-        
-        let submission;
-        if (isResuming) {
-            submission = submissions.find(s => s.testId === test.id && s.userId === user.uid);
-        } else {
-            const endTime = new Date(Date.now() + test.duration * 60 * 1000);
-            const newSubmission = {
-                testId: test.id, userId: user.uid, userEmail: user.email,
-                status: 'in-progress', startTime: serverTimestamp(), endTime,
-                score: 0, total: test.questions.length, answers: {}
-            };
-            const docRef = await addDoc(collection(db, "submissions"), newSubmission);
-            submission = { id: docRef.id, ...newSubmission };
-        }
-        
-        if (submission) {
-            setCurrentSubmission(submission);
-            setSelectedTest(test);
-            setCurrentPage('testTaker');
-        }
+const handleStartTest = async (test, isResuming = false) => {
+  if (!user) return;
+
+  let submission;
+  if (isResuming) {
+    // Resume existing in-progress submission by email key
+    submission = submissions.find(
+      s => s.testId === test.id && s.userId === user.userKey
+    );
+  } else {
+    // Start a fresh submission tied to email key
+    const endTime = new Date(Date.now() + test.duration * 60 * 1000);
+    const newSubmission = {
+      testId: test.id,
+      userId: user.userKey,   // email key, not Firebase uid
+      userEmail: user.email,  // for analytics display
+      status: 'in-progress',
+      startTime: serverTimestamp(),
+      endTime,                // Firestore will store as Timestamp
+      score: 0,
+      total: test.questions.length,
+      answers: {}
     };
+    const docRef = await addDoc(collection(db, "submissions"), newSubmission);
+    submission = { id: docRef.id, ...newSubmission };
+  }
+
+  if (submission) {
+    setCurrentSubmission(submission);
+    setSelectedTest(test);
+    setCurrentPage('testTaker');
+  }
+};
+
     
     const submitTest = async (testId, answers, submissionId) => {
         const test = tests.find(t => t.id === testId);
