@@ -281,7 +281,7 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
         if (selectedTest) {
             setTest(JSON.parse(JSON.stringify(selectedTest)));
         } else {
-            setTest({ name: '', duration: 30, questions: [{ id: Date.now(), type: 'MCQ', text: '', image: null, imagePath: null, correctAnswer: '', options: [{text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}] }] });
+            setTest({ name: '', duration: 60, questions: [{ id: Date.now(), type: 'MCQ', text: '', image: null, imagePath: null, correctAnswer: '', options: [{text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}] }] });
         }
     }, [selectedTest]);
     
@@ -438,53 +438,215 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
 
     // --- Render Function ---
     const renderQuestionForm = (q, qIndex) => (
-        <div key={q.id} style={styles.questionFormCard}>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px'}}>
-                <span style={{fontWeight: 'bold', fontSize: '18px', color: 'white'}}>Question {qIndex + 1} <span style={{fontWeight: 'normal', fontSize: '14px', color: 'rgba(255,255,255,0.7)'}}>({q.type})</span></span>
-                <button onClick={() => removeQuestion(qIndex)} style={{...styles.iconButton, color: '#ef4444'}} disabled={isUploading}><IconTrash /></button>
-            </div>
-            <textarea style={styles.inputField} placeholder="Question Text..." value={q.text} onChange={(e) => handleQuestionChange(qIndex, 'text', e.target.value)} />
-            <div style={{marginTop: '12px', display: 'flex', alignItems: 'center', gap: '16px'}}>
-                <input type="file" accept="image/*" style={{display: 'none'}} ref={el => fileInputRefs.current[`q_${qIndex}`] = el} onChange={(e) => handleQuestionImageChange(qIndex, e.target.files[0])} />
-                <button onClick={() => fileInputRefs.current[`q_${qIndex}`]?.click()} style={styles.uploadButton} disabled={isUploading}>
-                    <IconUpload /> {q.image ? 'Change Image' : 'Upload Image'}
-                </button>
-                {q.image && (
-                     <div style={{position: 'relative'}}>
-                        <img src={q.image} alt="Question" style={{height: '64px', width: 'auto', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)'}} />
-                        <button onClick={() => handleRemoveQuestionImage(qIndex)} style={styles.removeImageButton} disabled={isUploading}><IconX /></button>
-                     </div>
-                )}
-            </div>
-            <div style={{marginTop: '24px'}}>
-                <h4 style={{fontWeight: '600', fontSize: '16px', color: 'rgba(255,255,255,0.8)', marginBottom: '12px'}}>Options & Answer</h4>
-                {(q.type === 'INTEGER' || q.type === 'SHORT_ANSWER') && (
-                    <input
-                        type={q.type === 'INTEGER' ? 'number' : 'text'}
-                        style={styles.inputField}
-                        placeholder="Correct Answer"
-                        value={q.correctAnswer}
-                        onChange={(e) => handleCorrectAnswerChange(qIndex, e.target.value)}
-                    />
-                )}
-                {(q.type === 'MCQ' || q.type === 'MSQ') && q.options.map((opt, oIndex) => (
-                    <div key={oIndex} style={styles.optionItem}>
-                        <input type={q.type === 'MCQ' ? 'radio' : 'checkbox'} name={`correct_answer_${qIndex}`} checked={q.type === 'MCQ' ? q.correctAnswer === opt.text : (q.correctAnswer || []).includes(opt.text)} onChange={() => handleCorrectAnswerChange(qIndex, opt.text, q.type === 'MSQ')} />
-                        <input type="text" style={styles.inputField} placeholder={`Option ${oIndex + 1}`} value={opt.text} onChange={(e) => handleOptionChange(qIndex, oIndex, 'text', e.target.value)} />
-                        <input type="file" accept="image/*" style={{display: 'none'}} ref={el => fileInputRefs.current[`q_${qIndex}_o_${oIndex}`] = el} onChange={(e) => handleOptionImageChange(qIndex, oIndex, e.target.files[0])} />
-                        <button onClick={() => fileInputRefs.current[`q_${qIndex}_o_${oIndex}`]?.click()} style={styles.uploadButtonSmall} disabled={isUploading}><IconUpload /></button>
-                        {opt.image && (
-                            <div style={{position: 'relative'}}>
-                                <img src={opt.image} alt="Option" style={{height: '40px', width: 'auto', borderRadius: '4px'}} />
-                                 <button onClick={() => handleRemoveOptionImage(qIndex, oIndex)} style={styles.removeImageButtonSmall} disabled={isUploading}><IconX /></button>
-                            </div>
-                        )}
-                        <button onClick={() => removeOption(qIndex, oIndex)} style={{...styles.iconButton, color: 'rgba(255,255,255,0.6)'}} disabled={isUploading}><IconTrash /></button>
-                    </div>
-                ))}
-                 {(q.type === 'MCQ' || q.type === 'MSQ') && <button onClick={() => addOption(qIndex)} style={styles.addOptionButton} disabled={isUploading}>+ Add Option</button>}
-            </div>
+      <div key={q.id} style={styles.questionFormCard}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: "16px",
+          }}
+        >
+          <span
+            style={{ fontWeight: "bold", fontSize: "18px", color: "white" }}
+          >
+            Question {qIndex + 1}{" "}
+            <span
+              style={{
+                fontWeight: "normal",
+                fontSize: "14px",
+                color: "rgba(255,255,255,0.7)",
+              }}
+            >
+              ({q.type})
+            </span>
+          </span>
+          <button
+            onClick={() => removeQuestion(qIndex)}
+            style={{ ...styles.iconButton, color: "#ef4444" }}
+            disabled={isUploading}
+          >
+            <IconTrash />
+          </button>
         </div>
+        <textarea
+          style={styles.inputField}
+          placeholder="Question Text..."
+          value={q.text}
+          onChange={(e) => handleQuestionChange(qIndex, "text", e.target.value)}
+        />
+        <div
+          style={{
+            marginTop: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+          }}
+        >
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            ref={(el) => (fileInputRefs.current[`q_${qIndex}`] = el)}
+            onChange={(e) =>
+              handleQuestionImageChange(qIndex, e.target.files[0])
+            }
+          />
+          <button
+            onClick={() => fileInputRefs.current[`q_${qIndex}`]?.click()}
+            style={styles.uploadButton}
+            disabled={isUploading}
+          >
+            <IconUpload /> {q.image ? "Change Image" : "Upload Image"}
+          </button>
+          {q.image && (
+            <div style={{ position: "relative" }}>
+              <img
+                src={q.image}
+                alt="Question"
+                style={{
+                  height: "64px",
+                  width: "auto",
+                  borderRadius: "4px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                }}
+              />
+              <button
+                onClick={() => handleRemoveQuestionImage(qIndex)}
+                style={styles.removeImageButton}
+                disabled={isUploading}
+              >
+                <IconX />
+              </button>
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: "24px" }}>
+          <h4
+            style={{
+              fontWeight: "600",
+              fontSize: "16px",
+              color: "rgba(255,255,255,0.8)",
+              marginBottom: "12px",
+            }}
+          >
+            Options & Answer
+          </h4>
+          {(q.type === "INTEGER" || q.type === "SHORT_ANSWER") && (
+            <input
+              type={q.type === "INTEGER" ? "number" : "text"}
+              style={styles.inputField}
+              placeholder="Correct Answer"
+              value={q.correctAnswer}
+              onChange={(e) =>
+                handleCorrectAnswerChange(qIndex, e.target.value)
+              }
+            />
+          )}
+          {(q.type === "MCQ" || q.type === "MSQ") &&
+            q.options.map((opt, oIndex) => (
+              <div key={oIndex} style={styles.optionItem}>
+                {/* <input type={q.type === 'MCQ' ? 'radio' : 'checkbox'} name={`correct_answer_${qIndex}`} checked={q.type === 'MCQ' ? q.correctAnswer === opt.text : (q.correctAnswer || []).includes(opt.text)} onChange={() => handleCorrectAnswerChange(qIndex, opt.text, q.type === 'MSQ')} /> */}
+                <input
+                  type={q.type === "MCQ" ? "radio" : "checkbox"}
+                  // Fix 1: Give checkboxes unique names, but keep radio names grouped
+                  name={
+                    q.type === "MCQ"
+                      ? `correct_answer_${qIndex}`
+                      : `correct_answer_${qIndex}_${oIndex}`
+                  }
+                  checked={
+                    q.type === "MCQ"
+                      ? q.correctAnswer === opt.text
+                      : (q.correctAnswer || []).includes(opt.text)
+                  }
+                  onChange={() =>
+                    handleCorrectAnswerChange(
+                      qIndex,
+                      opt.text,
+                      q.type === "MSQ"
+                    )
+                  }
+                  // Fix 2 (The Bug Fix): Disable input if option text is empty
+                  disabled={opt.text.trim() === ""}
+                  title={
+                    opt.text.trim() === ""
+                      ? "Please enter text for this option before marking it as correct."
+                      : "Mark as correct answer"
+                  }
+                />
+                <input
+                  type="text"
+                  style={styles.inputField}
+                  placeholder={`Option ${oIndex + 1}`}
+                  value={opt.text}
+                  onChange={(e) =>
+                    handleOptionChange(qIndex, oIndex, "text", e.target.value)
+                  }
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  ref={(el) =>
+                    (fileInputRefs.current[`q_${qIndex}_o_${oIndex}`] = el)
+                  }
+                  onChange={(e) =>
+                    handleOptionImageChange(qIndex, oIndex, e.target.files[0])
+                  }
+                />
+                <button
+                  onClick={() =>
+                    fileInputRefs.current[`q_${qIndex}_o_${oIndex}`]?.click()
+                  }
+                  style={styles.uploadButtonSmall}
+                  disabled={isUploading}
+                >
+                  <IconUpload />
+                </button>
+                {opt.image && (
+                  <div style={{ position: "relative" }}>
+                    <img
+                      src={opt.image}
+                      alt="Option"
+                      style={{
+                        height: "40px",
+                        width: "auto",
+                        borderRadius: "4px",
+                      }}
+                    />
+                    <button
+                      onClick={() => handleRemoveOptionImage(qIndex, oIndex)}
+                      style={styles.removeImageButtonSmall}
+                      disabled={isUploading}
+                    >
+                      <IconX />
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeOption(qIndex, oIndex)}
+                  style={{
+                    ...styles.iconButton,
+                    color: "rgba(255,255,255,0.6)",
+                  }}
+                  disabled={isUploading}
+                >
+                  <IconTrash />
+                </button>
+              </div>
+            ))}
+          {(q.type === "MCQ" || q.type === "MSQ") && (
+            <button
+              onClick={() => addOption(qIndex)}
+              style={styles.addOptionButton}
+              disabled={isUploading}
+            >
+              + Add Option
+            </button>
+          )}
+        </div>
+      </div>
     );
 
     return (
