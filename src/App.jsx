@@ -20,6 +20,14 @@ import {
     updateDoc
 } from "firebase/firestore";
 
+import { 
+    getStorage, 
+    ref, 
+    uploadBytes, 
+    getDownloadURL,
+    deleteObject
+} from "firebase/storage";
+
 // --- Firebase Initialization ---
 const firebaseConfig = typeof __firebase_config !== 'undefined'
     ? JSON.parse(__firebase_config)
@@ -35,6 +43,7 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 // --- Hardcoded User Credentials ---
 const predefinedUsers = {
@@ -239,35 +248,75 @@ const AdminDashboard = ({ tests, setCurrentPage, setSelectedTest, user, handleLo
     );
 };
 
+// --- HELPER FUNCTION (can go above TestCreator) ---
+
+/**
+ * Uploads a file to Firebase Storage
+ * @param {File} file - The file to upload
+ * @returns {Promise<{downloadURL: string, path: string}>}
+ */
+const uploadFileToStorage = async (file) => {
+    if (!file) throw new Error("No file provided");
+    
+    // Create a unique file path
+    const storageRef = ref(storage, `images/${Date.now()}_${file.name}`);
+    
+    // Upload the file
+    await uploadBytes(storageRef, file);
+    
+    // Get the public URL
+    const downloadURL = await getDownloadURL(storageRef);
+    
+    return { downloadURL, path: storageRef.fullPath };
+};
+
+// --- CORE COMPONENTS (Replace your old TestCreator) ---
+
 const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
     const [test, setTest] = useState({ name: '', duration: 30, questions: [] });
+    const [isUploading, setIsUploading] = useState(false); // <-- New state
     const fileInputRefs = useRef({});
 
     useEffect(() => {
-        if (selectedTest) setTest(JSON.parse(JSON.stringify(selectedTest)));
-        else setTest({ name: '', duration: 30, questions: [{ id: Date.now(), type: 'MCQ', text: '', image: null, correctAnswer: '', options: [{text:'', image: null}, {text:'', image: null}] }] });
+        if (selectedTest) {
+            setTest(JSON.parse(JSON.stringify(selectedTest)));
+        } else {
+            setTest({ name: '', duration: 30, questions: [{ id: Date.now(), type: 'MCQ', text: '', image: null, imagePath: null, correctAnswer: '', options: [{text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}] }] });
+        }
     }, [selectedTest]);
     
+    // --- Generic field change handler ---
     const handleQuestionChange = (qIndex, field, value) => {
         const newQuestions = [...test.questions];
         newQuestions[qIndex][field] = value;
         setTest({ ...test, questions: newQuestions });
     };
 
-    const handleFileChange = (file, callback) => {
-        if (file && file.type.startsWith("image/")) {
-            const reader = new FileReader();
-            reader.onload = (e) => callback(e.target.result);
-            reader.readAsDataURL(file);
-        }
-    };
+    // --- New File Upload Handlers ---
 
-    const handleQuestionImageChange = (qIndex, file) => {
-        handleFileChange(file, (base64) => {
+    const handleQuestionImageChange = async (qIndex, file) => {
+        if (!file) return;
+        setIsUploading(true);
+        
+        // 1. Delete old image if it exists
+        const oldPath = test.questions[qIndex].imagePath;
+        if (oldPath) {
+            try { await deleteObject(ref(storage, oldPath)); } catch (e) { console.warn("Old image delete failed", e); }
+        }
+        
+        // 2. Upload new image
+        try {
+            const { downloadURL, path } = await uploadFileToStorage(file);
             const newQuestions = [...test.questions];
-            newQuestions[qIndex].image = base64;
+            newQuestions[qIndex].image = downloadURL;
+            newQuestions[qIndex].imagePath = path;
             setTest({ ...test, questions: newQuestions });
-        });
+        } catch (error) {
+            console.error("Upload failed", error);
+            alert("Image upload failed. Please try again.");
+        } finally {
+            setIsUploading(false);
+        }
     };
     
     const handleOptionChange = (qIndex, oIndex, field, value) => {
@@ -276,15 +325,66 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
         setTest({ ...test, questions: newQuestions });
     };
 
-    const handleOptionImageChange = (qIndex, oIndex, file) => {
-        handleFileChange(file, (base64) => {
+    const handleOptionImageChange = async (qIndex, oIndex, file) => {
+         if (!file) return;
+        setIsUploading(true);
+        
+        // 1. Delete old image if it exists
+        const oldPath = test.questions[qIndex].options[oIndex].imagePath;
+        if (oldPath) {
+            try { await deleteObject(ref(storage, oldPath)); } catch (e) { console.warn("Old image delete failed", e); }
+        }
+        
+        // 2. Upload new image
+        try {
+            const { downloadURL, path } = await uploadFileToStorage(file);
             const newQuestions = [...test.questions];
-            newQuestions[qIndex].options[oIndex].image = base64;
+            newQuestions[qIndex].options[oIndex].image = downloadURL;
+            newQuestions[qIndex].options[oIndex].imagePath = path;
             setTest({ ...test, questions: newQuestions });
-        });
+        } catch (error) {
+            console.error("Upload failed", error);
+            alert("Image upload failed. Please try again.");
+        } finally {
+            setIsUploading(false);
+        }
+    };
+    
+    // --- New Image Removal Handlers ---
+    
+    const handleRemoveQuestionImage = async (qIndex) => {
+        setIsUploading(true);
+        const oldPath = test.questions[qIndex].imagePath;
+        if (oldPath) {
+            try {
+                await deleteObject(ref(storage, oldPath));
+                const newQuestions = [...test.questions];
+                newQuestions[qIndex].image = null;
+                newQuestions[qIndex].imagePath = null;
+                setTest({ ...test, questions: newQuestions });
+            } catch (e) { console.warn("Image delete failed", e); }
+        }
+        setIsUploading(false);
+    };
+    
+    const handleRemoveOptionImage = async (qIndex, oIndex) => {
+        setIsUploading(true);
+        const oldPath = test.questions[qIndex].options[oIndex].imagePath;
+        if (oldPath) {
+            try {
+                await deleteObject(ref(storage, oldPath));
+                const newQuestions = [...test.questions];
+                newQuestions[qIndex].options[oIndex].image = null;
+                newQuestions[qIndex].options[oIndex].imagePath = null;
+                setTest({ ...test, questions: newQuestions });
+            } catch (e) { console.warn("Image delete failed", e); }
+        }
+        setIsUploading(false);
     };
 
+    // --- Other handlers (no change) ---
     const handleCorrectAnswerChange = (qIndex, value, isMSQ = false) => {
+        // ... (no changes needed here) ...
         const newQuestions = [...test.questions];
         if (isMSQ) {
             const currentAnswers = newQuestions[qIndex].correctAnswer || [];
@@ -297,51 +397,62 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
     };
 
     const addQuestion = (type) => {
-        const newQuestion = { id: Date.now(), type, text: '', image: null, correctAnswer: type === 'MSQ' ? [] : '' };
-        if (type === 'MCQ' || type === 'MSQ') newQuestion.options = [{text:'', image: null}, {text:'', image: null}];
+        const newQuestion = { id: Date.now(), type, text: '', image: null, imagePath: null, correctAnswer: type === 'MSQ' ? [] : '' };
+        if (type === 'MCQ' || type === 'MSQ') newQuestion.options = [{text:'', image: null, imagePath: null}, {text:'', image: null, imagePath: null}];
         setTest({ ...test, questions: [...test.questions, newQuestion] });
     };
 
     const addOption = (qIndex) => {
         const newQuestions = [...test.questions];
-        newQuestions[qIndex].options.push({text:'', image: null});
+        newQuestions[qIndex].options.push({text:'', image: null, imagePath: null});
         setTest({ ...test, questions: newQuestions });
     };
     
     const removeOption = (qIndex, oIndex) => {
+        // Note: This doesn't delete the image from storage.
+        // For simplicity, we assume removing an option is rare.
+        // A robust solution would delete it here.
         const newQuestions = [...test.questions];
         newQuestions[qIndex].options.splice(oIndex, 1);
         setTest({ ...test, questions: newQuestions });
     };
 
     const removeQuestion = (qIndex) => {
+        // Note: This also doesn't delete images.
+        // This requires looping the question and all its options to delete from storage.
+        // This is a good candidate for a Firebase Cloud Function on document delete.
         const newQuestions = test.questions.filter((_, index) => index !== qIndex);
         setTest({ ...test, questions: newQuestions });
     };
 
     const saveTest = async () => {
+        if (isUploading) return alert("Please wait for images to finish uploading.");
         if (test.name.trim() === '') return alert('Please provide a name for the test.');
+        
+        // The 'test' object now contains URLs and paths, not base64
         if (selectedTest) await setDoc(doc(db, "tests", selectedTest.id), test, { merge: true });
         else await addDoc(collection(db, "tests"), test);
+        
         setCurrentPage('adminDashboard');
     };
 
+    // --- Render Function ---
     const renderQuestionForm = (q, qIndex) => (
         <div key={q.id} style={styles.questionFormCard}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px'}}>
                 <span style={{fontWeight: 'bold', fontSize: '18px', color: 'white'}}>Question {qIndex + 1} <span style={{fontWeight: 'normal', fontSize: '14px', color: 'rgba(255,255,255,0.7)'}}>({q.type})</span></span>
-                <button onClick={() => removeQuestion(qIndex)} style={{...styles.iconButton, color: '#ef4444'}}><IconTrash /></button>
+                <button onClick={() => removeQuestion(qIndex)} style={{...styles.iconButton, color: '#ef4444'}} disabled={isUploading}><IconTrash /></button>
             </div>
             <textarea style={styles.inputField} placeholder="Question Text..." value={q.text} onChange={(e) => handleQuestionChange(qIndex, 'text', e.target.value)} />
             <div style={{marginTop: '12px', display: 'flex', alignItems: 'center', gap: '16px'}}>
                 <input type="file" accept="image/*" style={{display: 'none'}} ref={el => fileInputRefs.current[`q_${qIndex}`] = el} onChange={(e) => handleQuestionImageChange(qIndex, e.target.files[0])} />
-                <button onClick={() => fileInputRefs.current[`q_${qIndex}`]?.click()} style={styles.uploadButton}>
+                <button onClick={() => fileInputRefs.current[`q_${qIndex}`]?.click()} style={styles.uploadButton} disabled={isUploading}>
                     <IconUpload /> {q.image ? 'Change Image' : 'Upload Image'}
                 </button>
                 {q.image && (
                      <div style={{position: 'relative'}}>
                         <img src={q.image} alt="Question" style={{height: '64px', width: 'auto', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)'}} />
-                        <button onClick={() => handleQuestionChange(qIndex, 'image', null)} style={styles.removeImageButton}><IconX /></button>
+                        <button onClick={() => handleRemoveQuestionImage(qIndex)} style={styles.removeImageButton} disabled={isUploading}><IconX /></button>
                      </div>
                 )}
             </div>
@@ -361,17 +472,17 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
                         <input type={q.type === 'MCQ' ? 'radio' : 'checkbox'} name={`correct_answer_${qIndex}`} checked={q.type === 'MCQ' ? q.correctAnswer === opt.text : (q.correctAnswer || []).includes(opt.text)} onChange={() => handleCorrectAnswerChange(qIndex, opt.text, q.type === 'MSQ')} />
                         <input type="text" style={styles.inputField} placeholder={`Option ${oIndex + 1}`} value={opt.text} onChange={(e) => handleOptionChange(qIndex, oIndex, 'text', e.target.value)} />
                         <input type="file" accept="image/*" style={{display: 'none'}} ref={el => fileInputRefs.current[`q_${qIndex}_o_${oIndex}`] = el} onChange={(e) => handleOptionImageChange(qIndex, oIndex, e.target.files[0])} />
-                        <button onClick={() => fileInputRefs.current[`q_${qIndex}_o_${oIndex}`]?.click()} style={styles.uploadButtonSmall}><IconUpload /></button>
+                        <button onClick={() => fileInputRefs.current[`q_${qIndex}_o_${oIndex}`]?.click()} style={styles.uploadButtonSmall} disabled={isUploading}><IconUpload /></button>
                         {opt.image && (
                             <div style={{position: 'relative'}}>
                                 <img src={opt.image} alt="Option" style={{height: '40px', width: 'auto', borderRadius: '4px'}} />
-                                 <button onClick={() => handleOptionChange(qIndex, oIndex, 'image', null)} style={styles.removeImageButtonSmall}><IconX /></button>
+                                 <button onClick={() => handleRemoveOptionImage(qIndex, oIndex)} style={styles.removeImageButtonSmall} disabled={isUploading}><IconX /></button>
                             </div>
                         )}
-                        <button onClick={() => removeOption(qIndex, oIndex)} style={{...styles.iconButton, color: 'rgba(255,255,255,0.6)'}}><IconTrash /></button>
+                        <button onClick={() => removeOption(qIndex, oIndex)} style={{...styles.iconButton, color: 'rgba(255,255,255,0.6)'}} disabled={isUploading}><IconTrash /></button>
                     </div>
                 ))}
-                 {(q.type === 'MCQ' || q.type === 'MSQ') && <button onClick={() => addOption(qIndex)} style={styles.addOptionButton}>+ Add Option</button>}
+                 {(q.type === 'MCQ' || q.type === 'MSQ') && <button onClick={() => addOption(qIndex)} style={styles.addOptionButton} disabled={isUploading}>+ Add Option</button>}
             </div>
         </div>
     );
@@ -386,20 +497,20 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
                 </div>
                 <div>{test.questions.map(renderQuestionForm)}</div>
                 <div style={{display: 'flex', gap: '16px', margin: '32px 0', flexWrap: 'wrap'}}>
-                    <button onClick={() => addQuestion('MCQ')} style={styles.secondaryButton}>Add MCQ</button>
-                    <button onClick={() => addQuestion('MSQ')} style={styles.secondaryButton}>Add Multiple Correct</button>
-                    <button onClick={() => addQuestion('INTEGER')} style={styles.secondaryButton}>Add Integer</button>
-                    <button onClick={() => addQuestion('SHORT_ANSWER')} style={styles.secondaryButton}>Add Short Answer</button>
+                    <button onClick={() => addQuestion('MCQ')} style={styles.secondaryButton} disabled={isUploading}>Add MCQ</button>
+                    <button onClick={() => addQuestion('MSQ')} style={styles.secondaryButton} disabled={isUploading}>Add Multiple Correct</button>
+                    <button onClick={() => addQuestion('INTEGER')} style={styles.secondaryButton} disabled={isUploading}>Add Integer</button>
+                    <button onClick={() => addQuestion('SHORT_ANSWER')} style={styles.secondaryButton} disabled={isUploading}>Add Short Answer</button>
                 </div>
-                <div style={{display: 'flex', justifyContent: 'flex-end', gap: '16px', borderTop: '1px solid rgba(255,255,255,0.3)', paddingTop: '24px'}}>
-                     <button onClick={() => setCurrentPage('adminDashboard')} style={styles.secondaryButton}>Cancel</button>
-                     <button onClick={saveTest} style={styles.primaryButton}>Save Test</button>
+                <div style={{display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px', borderTop: '1px solid rgba(255,255,255,0.3)', paddingTop: '24px'}}>
+                     {isUploading && <span style={{color: 'rgba(255,255,255,0.7)', fontSize: '14px'}}>Uploading image...</span>}
+                     <button onClick={() => setCurrentPage('adminDashboard')} style={styles.secondaryButton} disabled={isUploading}>Cancel</button>
+                     <button onClick={saveTest} style={styles.primaryButton} disabled={isUploading}>Save Test</button>
                 </div>
             </div>
         </div>
     );
 };
-
 const UserDashboard = ({ tests, user, submissions, setCurrentPage, setSelectedTest, handleStartTest, setLastSubmission, handleLogout }) => (
     <div style={styles.dashboardLayout}>
         <Header title="Welcome, Explorer!" user={user} handleLogout={handleLogout} />
