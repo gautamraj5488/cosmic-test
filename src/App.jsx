@@ -752,6 +752,15 @@ const TestTaker = ({ test, currentSubmission, submitTest, setCurrentPage }) => {
     
     const currentQuestion = test.questions[currentQuestionIndex];
     const progressPercentage = ((currentQuestionIndex + 1) / test.questions.length) * 100;
+
+    // useEffect(() => {
+    //     // This tells MathJax to look at the page and render any math
+    //     // We check if `window.MathJax` exists first, in case the script hasn't loaded
+    //     if (window.MathJax) {
+    //         window.MathJax.typeset();
+    //     }
+    //     // This hook will re-run every time the question changes
+    // }, [currentQuestionIndex]);
     
     return (
         <div style={styles.testTakerLayout}>
@@ -845,6 +854,14 @@ const SubmissionReview = ({ submission, test }) => {
         if (Array.isArray(answer)) return answer.join(', ');
         return answer;
     };
+    // useEffect(() => {
+    //     // This tells MathJax to look at the page and render any math
+    //     // We check if `window.MathJax` exists first, in case the script hasn't loaded
+    //     if (window.MathJax) {
+    //         window.MathJax.typeset();
+    //     }
+    //     // This hook will re-run every time the question changes
+    // }, [currentQuestionIndex]);
 
     return (
         <div style={{display: 'flex', flexDirection: 'column', gap: '24px'}}>
@@ -939,6 +956,15 @@ const AnalyticsPage = ({ test, setCurrentPage }) => {
     }, [testSubmissions, test]);
 
     const maxCount = Math.max(...scoreDistribution, 1);
+
+    // useEffect(() => {
+    //     // This tells MathJax to look at the page and render any math
+    //     // We check if `window.MathJax` exists first, in case the script hasn't loaded
+    //     if (window.MathJax) {
+    //         window.MathJax.typeset();
+    //     }
+    //     // This hook will re-run every time the question changes
+    // }, [currentQuestionIndex]);
 
     return (
         <div style={styles.dashboardLayout}>
