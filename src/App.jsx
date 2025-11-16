@@ -854,43 +854,88 @@ const SubmissionReview = ({ submission, test }) => {
         if (Array.isArray(answer)) return answer.join(', ');
         return answer;
     };
-    // useEffect(() => {
-    //     // This tells MathJax to look at the page and render any math
-    //     // We check if `window.MathJax` exists first, in case the script hasn't loaded
-    //     if (window.MathJax) {
-    //         window.MathJax.typeset();
-    //     }
-    //     // This hook will re-run every time the question changes
-    // }, [currentQuestionIndex]);
 
     return (
         <div style={{display: 'flex', flexDirection: 'column', gap: '24px'}}>
             {test.questions.map((q, index) => {
                 const userAnswer = submission.answers ? submission.answers[q.id] : undefined;
-                let isCorrect = false;
+                let isOverallCorrect = false;
+                
                 if (userAnswer !== undefined) {
                     if (q.type === 'MSQ') {
-                        isCorrect = JSON.stringify([...(userAnswer || [])].sort()) === JSON.stringify([...q.correctAnswer].sort());
+                        isOverallCorrect = JSON.stringify([...(userAnswer || [])].sort()) === JSON.stringify([...q.correctAnswer].sort());
                     } else {
-                        isCorrect = String(userAnswer).trim().toLowerCase() === String(q.correctAnswer).trim().toLowerCase();
+                        isOverallCorrect = String(userAnswer).trim().toLowerCase() === String(q.correctAnswer).trim().toLowerCase();
                     }
                 }
 
                 return (
-                    <div key={q.id} style={{...styles.reviewCard, borderColor: isCorrect ? 'rgba(74, 222, 128, 0.5)' : 'rgba(239, 68, 68, 0.5)', backgroundColor: isCorrect ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)'}}>
+                    <div key={q.id} style={{...styles.reviewCard, borderColor: isOverallCorrect ? 'rgba(74, 222, 128, 0.5)' : 'rgba(239, 68, 68, 0.5)', backgroundColor: isOverallCorrect ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)'}}>
                         <p style={{fontWeight: '600', color: 'white', marginBottom: '12px'}}>Question {index + 1}: {q.text}</p>
-                        <div style={{fontSize: '14px', lineHeight: '1.5'}}>
-                            <div style={{display: 'flex', alignItems: 'flex-start'}}>
-                                <span style={{fontWeight: '600', marginRight: '8px', width: '112px', flexShrink: 0, color: isCorrect ? '#86efac' : '#fca5a5'}}>Student's Answer:</span>
-                                <span style={{color: 'rgba(255,255,255,0.9)'}}>{renderAnswer(userAnswer)}</span>
+                        
+                        {/* 1. Show Question Image */}
+                        {q.image && <img src={q.image} alt="Question" style={{...styles.reviewImage, marginBottom: '16px'}} />}
+
+                        {/* 2. Differentiate between question types */}
+                        {(q.type === 'MCQ' || q.type === 'MSQ') ? (
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px'}}>
+                                <h4 style={{fontWeight: '600', fontSize: '14px', color: 'rgba(255,255,255,0.7)', margin: 0, marginBottom: '4px'}}>Options:</h4>
+                                {q.options.map((opt, oIndex) => {
+                                    
+                                    // 3. Determine status for each option
+                                    const isCorrectAnswer = q.type === 'MSQ' 
+                                        ? (q.correctAnswer || []).includes(opt.text)
+                                        : q.correctAnswer === opt.text;
+                                        
+                                    const isUserAnswer = q.type === 'MSQ'
+                                        ? (userAnswer || []).includes(opt.text)
+                                        : userAnswer === opt.text;
+
+                                    // 4. Determine border color based on user request
+                                    let borderColor = 'rgba(255,255,255,0.2)';
+                                    let borderWidth = '1px';
+                                    let label = null;
+                                    
+                                    if (isCorrectAnswer) {
+                                        borderColor = '#4ade80'; // Green for correct
+                                        borderWidth = '2px';
+                                        label = <span style={{color: '#4ade80', fontWeight: '600', fontSize: '12px', flexShrink: 0}}>(Correct Answer)</span>;
+                                    }
+                                    if (isUserAnswer && !isCorrectAnswer) {
+                                        borderColor = '#ef4444'; // Red for user's wrong answer
+                                        borderWidth = '2px';
+                                        label = <span style={{color: '#ef4444', fontWeight: '600', fontSize: '12px', flexShrink: 0}}>(Your Answer)</span>;
+                                    }
+                                     if (isUserAnswer && isCorrectAnswer) {
+                                        label = <span style={{color: '#4ade80', fontWeight: '600', fontSize: '12px', flexShrink: 0}}>(Your Answer)</span>;
+                                    }
+
+                                    return (
+                                        <div key={oIndex} style={{...styles.optionLabel, padding: '12px', borderColor, borderWidth, backgroundColor: 'transparent', cursor: 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                            <div style={{flexGrow: 1}}>
+                                                <span style={{color: 'rgba(255,255,255,0.9)'}}>{opt.text}</span>
+                                                {opt.image && <img src={opt.image} alt="Option" style={{...styles.reviewImage, maxWidth: '160px', marginTop: '8px'}}/>}
+                                            </div>
+                                            {label}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            {!isCorrect && (
-                                <div style={{display: 'flex', alignItems: 'flex-start', marginTop: '4px'}}>
-                                    <span style={{fontWeight: '600', marginRight: '8px', width: '112px', flexShrink: 0, color: '#60a5fa'}}>Correct Answer:</span>
-                                    <span style={{color: 'rgba(255,255,255,0.9)'}}>{renderAnswer(q.correctAnswer)}</span>
+                        ) : (
+                            // 5. Keep old logic for INTEGER/SHORT_ANSWER
+                            <div style={{fontSize: '14px', lineHeight: '1.5', marginTop: '16px'}}>
+                                <div style={{display: 'flex', alignItems: 'flex-start'}}>
+                                    <span style={{fontWeight: '600', marginRight: '8px', width: '112px', flexShrink: 0, color: isOverallCorrect ? '#86efac' : '#fca5a5'}}>Your Answer:</span>
+                                    <span style={{color: 'rgba(255,255,255,0.9)'}}>{renderAnswer(userAnswer)}</span>
                                 </div>
-                            )}
-                        </div>
+                                {!isOverallCorrect && (
+                                    <div style={{display: 'flex', alignItems: 'flex-start', marginTop: '4px'}}>
+                                        <span style={{fontWeight: '600', marginRight: '8px', width: '112px', flexShrink: 0, color: '#60a5fa'}}>Correct Answer:</span>
+                                        <span style={{color: 'rgba(255,255,255,0.9)'}}>{renderAnswer(q.correctAnswer)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 );
             })}
@@ -1276,6 +1321,7 @@ const styles = {
     testTakerFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', backgroundColor: 'rgba(0,0,0,0.3)', borderTop: '1px solid rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', position: 'sticky', bottom: 0 },
     resultsCard: { width: '100%', maxWidth: '768px', backgroundColor: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.2)', padding: '40px', borderRadius: '16px', textAlign: 'center' },
     reviewCard: { padding: '20px', borderRadius: '12px', border: '1px solid' },
+    reviewImage: {maxWidth: '100%',height: 'auto',maxHeight: '240px',borderRadius: '8px',border: '1px solid rgba(255,255,255,0.2)',objectFit: 'contain'},
     backButton: { color: '#60a5fa', fontWeight: '600', marginBottom: '24px' },
     analyticsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px', marginBottom: '32px' },
     analyticsStatCard: { backgroundColor: 'rgba(0,0,0,0.3)', padding: '24px', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.2)' },
