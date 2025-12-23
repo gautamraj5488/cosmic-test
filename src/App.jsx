@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { InlineMath, BlockMath } from 'react-katex';
+import 'katex/dist/katex.min.css';
 import { initializeApp } from "firebase/app";
 import { 
     getAuth, 
@@ -67,6 +69,37 @@ const IconEye = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height=
 const IconPlayCircle = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>;
 
 // --- UI & HELPER COMPONENTS ---
+
+const LatexText = ({ text }) => {
+    if (!text) return null;
+    
+    // Split text by LaTeX delimiters
+    const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+    
+    return (
+        <span>
+            {parts.map((part, index) => {
+                try {
+                    if (part.startsWith('$$') && part.endsWith('$$')) {
+                        // Block math
+                        const math = part.slice(2, -2);
+                        return <BlockMath key={index} math={math} />;
+                    } else if (part.startsWith('$') && part.endsWith('$') && part.length > 2) {
+                        // Inline math
+                        const math = part.slice(1, -1);
+                        return <InlineMath key={index} math={math} />;
+                    } else {
+                        // Regular text
+                        return <span key={index}>{part}</span>;
+                    }
+                } catch (error) {
+                    // If LaTeX parsing fails, render as plain text
+                    return <span key={index}>{part}</span>;
+                }
+            })}
+        </span>
+    );
+};
 
 const LoadingScreen = () => (
     <div style={styles.centeredPageLayout}>
@@ -782,7 +815,7 @@ const TestTaker = ({ test, currentSubmission, submitTest, setCurrentPage }) => {
                         </div>
                     </div>
 
-                    <p style={{fontSize: '18px', color: 'white', marginBottom: '16px'}}>{currentQuestion.text}</p>
+                    <p style={{fontSize: '18px', color: 'white', marginBottom: '16px'}}><LatexText text={currentQuestion.text} /></p>
                     {currentQuestion.image && <img src={currentQuestion.image} alt="Question visual aid" style={{margin: '16px 0', borderRadius: '8px', maxWidth: '100%', height: 'auto', border: '1px solid rgba(255,255,255,0.2)'}} />}
                     <div style={{display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '24px'}}>
                         {(currentQuestion.type === 'INTEGER' || currentQuestion.type === 'SHORT_ANSWER') && (
@@ -798,7 +831,7 @@ const TestTaker = ({ test, currentSubmission, submitTest, setCurrentPage }) => {
                             <label key={oIndex} style={{...styles.optionLabel, backgroundColor: (answers[currentQuestion.id] || []).includes(opt.text) || answers[currentQuestion.id] === opt.text ? 'rgba(96, 165, 250, 0.3)' : 'inherit', borderColor: (answers[currentQuestion.id] || []).includes(opt.text) || answers[currentQuestion.id] === opt.text ? '#60a5fa' : 'rgba(255,255,255,0.2)'}}>
                                 <input type={currentQuestion.type === 'MCQ' ? 'radio' : 'checkbox'} name={`question_${currentQuestion.id}`} checked={ currentQuestion.type === 'MCQ' ? answers[currentQuestion.id] === opt.text : (answers[currentQuestion.id] || []).includes(opt.text) } onChange={() => handleAnswerChange(currentQuestion.id, opt.text, currentQuestion.type)} />
                                 <div style={{flexGrow: 1}}>
-                                    <span style={{color: 'rgba(255,255,255,0.9)'}}>{opt.text}</span>
+                                    <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
                                     {opt.image && <img src={opt.image} alt="Option visual aid" style={{marginTop: '12px', borderRadius: '8px', maxWidth: '160px', height: 'auto', border: '1px solid rgba(255,255,255,0.2)'}}/>}
                                 </div>
                             </label>
@@ -871,7 +904,7 @@ const SubmissionReview = ({ submission, test }) => {
 
                 return (
                     <div key={q.id} style={{...styles.reviewCard, borderColor: isOverallCorrect ? 'rgba(74, 222, 128, 0.5)' : 'rgba(239, 68, 68, 0.5)', backgroundColor: isOverallCorrect ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)'}}>
-                        <p style={{fontWeight: '600', color: 'white', marginBottom: '12px'}}>Question {index + 1}: {q.text}</p>
+                        <p style={{fontWeight: '600', color: 'white', marginBottom: '12px'}}>Question {index + 1}: <LatexText text={q.text} /></p>
                         
                         {/* 1. Show Question Image */}
                         {q.image && <img src={q.image} alt="Question" style={{...styles.reviewImage, marginBottom: '16px'}} />}
@@ -913,7 +946,7 @@ const SubmissionReview = ({ submission, test }) => {
                                     return (
                                         <div key={oIndex} style={{...styles.optionLabel, padding: '12px', borderColor, borderWidth, backgroundColor: 'transparent', cursor: 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                                             <div style={{flexGrow: 1}}>
-                                                <span style={{color: 'rgba(255,255,255,0.9)'}}>{opt.text}</span>
+                                                <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
                                                 {opt.image && <img src={opt.image} alt="Option" style={{...styles.reviewImage, maxWidth: '160px', marginTop: '8px'}}/>}
                                             </div>
                                             {label}
