@@ -51,7 +51,8 @@ const storage = getStorage(app);
 const predefinedUsers = {
     "admin@quiz.com": { password: "pass1234", role: "admin" },
     "sandarbh@cosmic.com": { password: "pass1234", role: "user" },
-    "gaurav@cosmic.com": { password: "pass1234", role: "user" }
+    "gaurav@cosmic.com": { password: "pass1234", role: "user" },
+    "test@cosmic.com": { password: "pass1234", role: "user" },
 };
 
 // --- ICONS (as SVG components) ---
