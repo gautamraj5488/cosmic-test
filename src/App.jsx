@@ -74,27 +74,29 @@ const IconPlayCircle = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" 
 const LatexText = ({ text }) => {
     if (!text) return null;
     
-    // Split text by LaTeX delimiters
-    const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+    // Split text by LaTeX delimiters: $$...$$, \[...\], $...$, \(...\)
+    const parts = text.split(/(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[\s\S]*?\$)/g);
     
     return (
         <span>
             {parts.map((part, index) => {
                 try {
                     if (part.startsWith('$$') && part.endsWith('$$')) {
-                        // Block math
                         const math = part.slice(2, -2);
                         return <BlockMath key={index} math={math} />;
+                    } else if (part.startsWith('\\[') && part.endsWith('\\]')) {
+                        const math = part.slice(2, -2);
+                        return <BlockMath key={index} math={math} />;
+                    } else if (part.startsWith('\\(') && part.endsWith('\\)')) {
+                        const math = part.slice(2, -2);
+                        return <InlineMath key={index} math={math} />;
                     } else if (part.startsWith('$') && part.endsWith('$') && part.length > 2) {
-                        // Inline math
                         const math = part.slice(1, -1);
                         return <InlineMath key={index} math={math} />;
                     } else {
-                        // Regular text
                         return <span key={index}>{part}</span>;
                     }
                 } catch (error) {
-                    // If LaTeX parsing fails, render as plain text
                     return <span key={index}>{part}</span>;
                 }
             })}
@@ -304,12 +306,167 @@ const uploadFileToStorage = async (file) => {
     return { downloadURL, path: storageRef.fullPath };
 };
 
+const getOptionLabel = (index) => String.fromCharCode(65 + index);
+
+const parseLatexQuestionBank = (latex) => {
+    if (!latex || !latex.trim()) return [];
+
+    const cleaned = latex
+        .replace(/%.*$/gm, '')
+        .replace(/\r/g, '')
+        .replace(/\\textbf\{([^}]*)\}/g, '$1')
+        .replace(/\\begin\{enumerate\}(?:\[[^\]]*\])?/g, '\\begin{enumerate}')
+        .replace(/\\end\{enumerate\}/g, '\\end{enumerate}');
+
+    const lines = cleaned.split('\n');
+    let depth = 0;
+    let current = null;
+    const questions = [];
+
+    const pushCurrent = () => {
+        if (!current) return;
+        current.rawText = current.rawText.trim();
+        questions.push(current);
+        current = null;
+    };
+
+    lines.forEach(rawLine => {
+        const line = rawLine.trim();
+        if (line === '') return;
+        if (line.startsWith('\\begin{enumerate}')) {
+            depth += 1;
+            return;
+        }
+        if (line.startsWith('\\end{enumerate}')) {
+            depth = Math.max(0, depth - 1);
+            return;
+        }
+        if (depth === 1 && line.startsWith('\\item')) {
+            pushCurrent();
+            current = { rawText: '', options: [], correctOption: '', correctAnswer: '' };
+            const questionText = line.replace(/^\\item\s*/,'').trim();
+            if (questionText) current.rawText += questionText + '\n';
+            return;
+        }
+        if (!current) return;
+
+        if (depth === 2 && line.startsWith('\\item')) {
+            const optionText = line.replace(/^\\item\s*/,'').trim();
+            current.options.push(optionText);
+            return;
+        }
+
+        const correctMatch = line.match(/Correct Option\s*[:\-]?\s*\(?([A-D])\)?/i);
+        if (correctMatch) {
+            current.correctOption = correctMatch[1].toUpperCase();
+            return;
+        }
+
+        current.rawText += line + '\n';
+    });
+
+    pushCurrent();
+
+    return questions
+        .map((q, index) => {
+            const correctIndex = 'ABCD'.indexOf(q.correctOption);
+            const correctAnswer = correctIndex >= 0 && q.options[correctIndex] ? q.options[correctIndex] : '';
+            return {
+                id: Date.now() + index,
+                type: 'MCQ',
+                text: q.rawText.trim(),
+                image: null,
+                imagePath: null,
+                options: q.options.map(opt => ({ text: opt.trim(), image: null, imagePath: null })),
+                correctAnswer,
+                correctOption: q.correctOption,
+            };
+        })
+        .filter(q => q.text && q.options.length >= 2 && q.correctAnswer);
+};
+
 // --- CORE COMPONENTS (Replace your old TestCreator) ---
+
+
+const parseQuestionBankSource = (source) => {
+    const trimmed = source.trim();
+
+    // --- Try JSON first ---
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        let parsed;
+        try {
+            parsed = JSON.parse(trimmed);
+        } catch (e) {
+            throw new Error('Invalid JSON: ' + e.message);
+        }
+
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+
+        return items.map((item, index) => {
+            const type = (item.type || 'MCQ').toUpperCase();
+            const text = item.question || item.text || '';
+
+            if (!text) throw new Error(`Question ${index + 1} is missing a "question" or "text" field.`);
+
+            const base = {
+                id: Date.now() + index,
+                type,
+                text,
+                image: null,
+                imagePath: null,
+            };
+
+            if (type === 'MCQ' || type === 'MSQ') {
+                const rawOptions = item.options || [];
+                const options = rawOptions.map(opt => ({
+                    text: typeof opt === 'string' ? opt : (opt.text || ''),
+                    image: null,
+                    imagePath: null,
+                }));
+
+                // Resolve correctAnswer: support letter ("A","B",...) or full text
+                let correctAnswer = '';
+                if (type === 'MSQ') {
+                    const rawCA = Array.isArray(item.correctAnswer) ? item.correctAnswer : [item.correctAnswer];
+                    correctAnswer = rawCA.map(ca => {
+                        if (ca && ca.length === 1 && ca >= 'A' && ca <= 'Z') {
+                            const idx = ca.charCodeAt(0) - 65;
+                            return options[idx]?.text || ca;
+                        }
+                        return ca;
+                    });
+                } else {
+                    const ca = item.correctAnswer || '';
+                    if (ca.length === 1 && ca >= 'A' && ca <= 'Z') {
+                        const idx = ca.charCodeAt(0) - 65;
+                        correctAnswer = options[idx]?.text || ca;
+                    } else {
+                        correctAnswer = ca;
+                    }
+                }
+
+                return { ...base, options, correctAnswer };
+            }
+
+            if (type === 'INTEGER' || type === 'SHORT_ANSWER') {
+                return { ...base, correctAnswer: String(item.correctAnswer || '') };
+            }
+
+            return { ...base, options: [], correctAnswer: item.correctAnswer || '' };
+        });
+    }
+
+    // --- Fall back to LaTeX parser ---
+    return parseLatexQuestionBank(trimmed);
+};
 
 const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
     const [test, setTest] = useState({ name: '', duration: 30, questions: [] });
-    const [isUploading, setIsUploading] = useState(false); // <-- New state
+    const [isUploading, setIsUploading] = useState(false);
+    const [latexSource, setLatexSource] = useState('');
+    const [latexParseError, setLatexParseError] = useState('');
     const fileInputRefs = useRef({});
+    const latexFileInputRef = useRef(null);
 
     useEffect(() => {
         if (selectedTest) {
@@ -351,6 +508,49 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
         } finally {
             setIsUploading(false);
         }
+    };
+
+    const handleLatexFileChange = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const text = ev.target?.result;
+            if (typeof text === 'string') {
+                setLatexSource(text);
+                setLatexParseError('');
+            }
+        };
+        reader.onerror = () => {
+            setLatexParseError('Failed to read the LaTeX file. Please try again.');
+        };
+        reader.readAsText(file, 'UTF-8');
+    };
+
+    const importLatexQuestions = () => {
+        if (!latexSource.trim()) {
+            setLatexParseError('Please paste JSON or LaTeX text, or upload a .json/.tex file first.');
+            return;
+        }
+
+        let parsedQuestions = [];
+        try {
+            parsedQuestions = parseQuestionBankSource(latexSource);
+        } catch (error) {
+            setLatexParseError(error.message || 'Unable to parse the provided input.');
+            return;
+        }
+
+        if (parsedQuestions.length === 0) {
+            setLatexParseError('No valid questions were found in the uploaded source.');
+            return;
+        }
+
+        setTest({
+            ...test,
+            questions: parsedQuestions,
+        });
+        setLatexParseError('');
+        alert(`Imported ${parsedQuestions.length} question${parsedQuestions.length === 1 ? '' : 's'} from the input.`);
     };
     
     const handleOptionChange = (qIndex, oIndex, field, value) => {
@@ -580,10 +780,9 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
           {(q.type === "MCQ" || q.type === "MSQ") &&
             q.options.map((opt, oIndex) => (
               <div key={oIndex} style={styles.optionItem}>
-                {/* <input type={q.type === 'MCQ' ? 'radio' : 'checkbox'} name={`correct_answer_${qIndex}`} checked={q.type === 'MCQ' ? q.correctAnswer === opt.text : (q.correctAnswer || []).includes(opt.text)} onChange={() => handleCorrectAnswerChange(qIndex, opt.text, q.type === 'MSQ')} /> */}
+                <span style={{width: '28px', fontWeight: '700', color: 'rgba(255,255,255,0.8)'}}>{getOptionLabel(oIndex)}</span>
                 <input
                   type={q.type === "MCQ" ? "radio" : "checkbox"}
-                  // Fix 1: Give checkboxes unique names, but keep radio names grouped
                   name={
                     q.type === "MCQ"
                       ? `correct_answer_${qIndex}`
@@ -601,7 +800,6 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
                       q.type === "MSQ"
                     )
                   }
-                  // Fix 2 (The Bug Fix): Disable input if option text is empty
                   disabled={opt.text.trim() === ""}
                   title={
                     opt.text.trim() === ""
@@ -612,7 +810,7 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
                 <input
                   type="text"
                   style={styles.inputField}
-                  placeholder={`Option ${oIndex + 1}`}
+                  placeholder={`Option ${getOptionLabel(oIndex)}`}
                   value={opt.text}
                   onChange={(e) =>
                     handleOptionChange(qIndex, oIndex, "text", e.target.value)
@@ -690,6 +888,44 @@ const TestCreator = ({ selectedTest, setCurrentPage, user, handleLogout }) => {
                 <div style={styles.formGrid}>
                     <input type="text" style={styles.inputField} placeholder="Test Name" value={test.name} onChange={(e) => setTest({ ...test, name: e.target.value })} />
                     <input type="number" style={styles.inputField} placeholder="Duration (minutes)" value={test.duration} onChange={(e) => setTest({ ...test, duration: parseInt(e.target.value) || 0 })} />
+                </div>
+                <div style={styles.latexImportCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700' }}>Import JSON / LaTeX Question Bank</h3>
+                            <p style={{ margin: '8px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '14px' }}>
+                                Paste JSON or LaTeX content, or upload a .json/.tex file.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => latexFileInputRef.current?.click()}
+                            style={styles.uploadButton}
+                            disabled={isUploading}
+                        >
+                            <IconUpload /> Upload JSON / TEX
+                        </button>
+                    </div>
+                    <input
+                        type="file"
+                        accept=".tex,.txt,.json"
+                        style={{ display: 'none' }}
+                        ref={latexFileInputRef}
+                        onChange={(e) => handleLatexFileChange(e.target.files?.[0])}
+                    />
+                    <textarea
+                        style={{ ...styles.inputField, minHeight: '180px', resize: 'vertical', fontFamily: 'monospace' }}
+                        value={latexSource}
+                        onChange={(e) => { setLatexSource(e.target.value); setLatexParseError(''); }}
+                        placeholder="Paste JSON or LaTeX content here..."
+                    />
+                    {latexParseError && <p style={{ color: '#f87171', marginTop: '12px' }}>{latexParseError}</p>}
+                    <button
+                        onClick={importLatexQuestions}
+                        style={{ ...styles.primaryButton, marginTop: '16px' }}
+                        disabled={isUploading}
+                    >
+                        Import Questions from JSON / LaTeX
+                    </button>
                 </div>
                 <div>{test.questions.map(renderQuestionForm)}</div>
                 <div style={{display: 'flex', gap: '16px', margin: '32px 0', flexWrap: 'wrap'}}>
@@ -831,9 +1067,12 @@ const TestTaker = ({ test, currentSubmission, submitTest, setCurrentPage }) => {
                         {(currentQuestion.type === 'MCQ' || currentQuestion.type === 'MSQ') && currentQuestion.options.map((opt, oIndex) => (
                             <label key={oIndex} style={{...styles.optionLabel, backgroundColor: (answers[currentQuestion.id] || []).includes(opt.text) || answers[currentQuestion.id] === opt.text ? 'rgba(96, 165, 250, 0.3)' : 'inherit', borderColor: (answers[currentQuestion.id] || []).includes(opt.text) || answers[currentQuestion.id] === opt.text ? '#60a5fa' : 'rgba(255,255,255,0.2)'}}>
                                 <input type={currentQuestion.type === 'MCQ' ? 'radio' : 'checkbox'} name={`question_${currentQuestion.id}`} checked={ currentQuestion.type === 'MCQ' ? answers[currentQuestion.id] === opt.text : (answers[currentQuestion.id] || []).includes(opt.text) } onChange={() => handleAnswerChange(currentQuestion.id, opt.text, currentQuestion.type)} />
-                                <div style={{flexGrow: 1}}>
-                                    <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
-                                    {opt.image && <img src={opt.image} alt="Option visual aid" style={{marginTop: '12px', borderRadius: '8px', maxWidth: '160px', height: 'auto', border: '1px solid rgba(255,255,255,0.2)'}}/>}
+                                <div style={{display: 'flex', alignItems: 'flex-start', gap: '12px', flexGrow: 1}}>
+                                    <span style={{fontWeight: '700', color: 'rgba(255,255,255,0.85)'}}>{getOptionLabel(oIndex)}.</span>
+                                    <div>
+                                        <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
+                                        {opt.image && <img src={opt.image} alt="Option visual aid" style={{marginTop: '12px', borderRadius: '8px', maxWidth: '160px', height: 'auto', border: '1px solid rgba(255,255,255,0.2)'}}/>}
+                                    </div>
                                 </div>
                             </label>
                         ))}
@@ -946,9 +1185,12 @@ const SubmissionReview = ({ submission, test }) => {
 
                                     return (
                                         <div key={oIndex} style={{...styles.optionLabel, padding: '12px', borderColor, borderWidth, backgroundColor: 'transparent', cursor: 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                                            <div style={{flexGrow: 1}}>
-                                                <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
-                                                {opt.image && <img src={opt.image} alt="Option" style={{...styles.reviewImage, maxWidth: '160px', marginTop: '8px'}}/>}
+                                            <div style={{flexGrow: 1, display: 'flex', alignItems: 'flex-start', gap: '12px'}}>
+                                                <span style={{fontWeight: '700', color: 'rgba(255,255,255,0.85)'}}>{getOptionLabel(oIndex)}.</span>
+                                                <div>
+                                                    <span style={{color: 'rgba(255,255,255,0.9)'}}><LatexText text={opt.text} /></span>
+                                                    {opt.image && <img src={opt.image} alt="Option" style={{...styles.reviewImage, maxWidth: '160px', marginTop: '8px'}}/>}
+                                                </div>
                                             </div>
                                             {label}
                                         </div>
@@ -1344,6 +1586,7 @@ const styles = {
     removeImageButtonSmall: { position: 'absolute', top: '-4px', right: '-4px', backgroundColor: '#ef4444', color: 'white', borderRadius: '9999px', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
     addOptionButton: { color: '#60a5fa', fontWeight: '600', fontSize: '14px', marginTop: '8px' },
     formGrid: { display: 'grid', gridTemplateColumns: '1fr', gap: '24px', marginBottom: '32px' },
+    latexImportCard: { backgroundColor: '#1f2937', borderRadius: '16px', padding: '24px', border: '1px solid rgba(255,255,255,0.12)', marginBottom: '32px' },
     gridContainer: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '32px' },
     dashboardCard: { backgroundColor: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
     dashboardCardTitle: { fontWeight: 'bold', fontSize: '20px', color: 'white', marginBottom: '12px', margin: 0 },
